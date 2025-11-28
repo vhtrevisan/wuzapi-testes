@@ -188,8 +188,8 @@ func (s *Service) HandleIncomingMessage(userID string, evt *events.Message, waCl
 		Bool("is_group", evt.Info.IsGroup).
 		Msg("Processing message for Chatwoot")
 
-	// 6. Format phone to E.164
-	phoneNumber := formatToE164(strings.Split(contactJID, "@")[0])
+	// 6. Format phone to E.164 (CORRIGIDO PARA REMOVER DEVICE ID)
+	phoneNumber := formatToE164(contactJID)
 
 	// 7. Ensure contact exists in Chatwoot
 	contactID, err := s.ensureContact(client, config, phoneNumber, contactName, contactJID)
@@ -380,8 +380,8 @@ func (s *Service) ensureConversation(userID string, client *Client, config *Conf
 
 	// Save to database cache
 	insertQuery := `INSERT INTO chatwoot_conversations 
-		(user_id, chat_jid, chatwoot_conversation_id, chatwoot_contact_id, chatwoot_inbox_id) 
-		VALUES ($1, $2, $3, $4, $5)`
+        (user_id, chat_jid, chatwoot_conversation_id, chatwoot_contact_id, chatwoot_inbox_id) 
+        VALUES ($1, $2, $3, $4, $5)`
 
 	if s.db.DriverName() == "sqlite" {
 		insertQuery = strings.Replace(insertQuery, "$1", "?", 1)
@@ -508,11 +508,23 @@ func (s *Service) sendMediaMessage(client *Client, waClient *whatsmeow.Client, e
 }
 
 // formatToE164 formats a phone number to E.164 format
+// Handles WhatsApp Multi-Device JIDs like: 5511999999999:84@s.whatsapp.net
 func formatToE164(phone string) string {
+	// CRITICAL: First remove @ and everything after (domain)
+	if idx := strings.Index(phone, "@"); idx != -1 {
+		phone = phone[:idx]
+	}
+
+	// CRITICAL: Then remove : and everything after (Device ID in Multi-Device)
+	// Example: "5511999999999:84" -> "5511999999999"
+	if idx := strings.Index(phone, ":"); idx != -1 {
+		phone = phone[:idx]
+	}
+
 	// Remove any existing + prefix
 	phone = strings.TrimPrefix(phone, "+")
 
-	// Remove any non-digit characters
+	// Remove any remaining non-digit characters
 	phone = strings.Map(func(r rune) rune {
 		if r >= '0' && r <= '9' {
 			return r
@@ -520,6 +532,9 @@ func formatToE164(phone string) string {
 		return -1
 	}, phone)
 
-	// Add + prefix
-	return "+" + phone
+	// Add + prefix if we have a valid number
+	if len(phone) > 0 {
+		return "+" + phone
+	}
+	return phone
 }
