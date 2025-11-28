@@ -137,43 +137,62 @@ func (s *Service) HandleIncomingMessage(userID string, evt *events.Message, waCl
 	// 4. Initialize Chatwoot client
 	client := NewClient(config)
 
-	// 5. Determine sender information
-	senderJID := evt.Info.Sender.String()
-	chatJID := evt.Info.Chat.String()
+	// 5. Determine contact (target) and message type
+	// CRITICAL LOGIC FOR PHONE SYNC:
+	// - IsFromMe=true (sent from phone): Contact = Recipient (who we sent TO)
+	// - IsFromMe=false (received): Contact = Sender (who sent TO US)
+	var contactJID, chatJID string
+	var msgType string
+	var contactName string
 
-	if evt.Info.IsGroup {
-		// For groups, contact is the participant, conversation is for the group
-		senderJID = evt.Info.Sender.String()
-	} else {
-		// For 1-on-1, sender and chat are the same
-		senderJID = chatJID
-	}
+	chatJID = evt.Info.Chat.String()
 
-	contactName := evt.Info.PushName
-	if contactName == "" {
-		contactName = strings.Split(senderJID, "@")[0]
-	}
-
-	// 6. Determine message type based on IsFromMe
-	msgType := "incoming"
 	if evt.Info.IsFromMe {
+		// Message sent from our phone -> Contact is the recipient
 		msgType = "outgoing"
+		if evt.Info.IsGroup {
+			// For group messages, contact is still the group
+			contactJID = evt.Info.Chat.String()
+			contactName = "" // Will be extracted from group info
+		} else {
+			// For 1-on-1, contact is who we sent TO (the Chat)
+			contactJID = evt.Info.Chat.String()
+			contactName = evt.Info.PushName
+		}
+	} else {
+		// Message received -> Contact is the sender
+		msgType = "incoming"
+		if evt.Info.IsGroup {
+			// For groups, contact is the participant who sent
+			contactJID = evt.Info.Sender.String()
+			contactName = evt.Info.PushName
+			// But conversation is for the group (chatJID already set)
+		} else {
+			// For 1-on-1, contact is the sender
+			contactJID = evt.Info.Sender.String()
+			contactName = evt.Info.PushName
+		}
+	}
+
+	if contactName == "" {
+		contactName = strings.Split(contactJID, "@")[0]
 	}
 
 	log.Info().
 		Str("user_id", userID).
 		Str("message_id", evt.Info.ID).
-		Str("sender_jid", senderJID).
+		Str("contact_jid", contactJID).
 		Str("chat_jid", chatJID).
 		Str("msg_type", msgType).
+		Bool("is_from_me", evt.Info.IsFromMe).
 		Bool("is_group", evt.Info.IsGroup).
 		Msg("Processing message for Chatwoot")
 
-	// 7. Format phone to E.164
-	phoneNumber := formatToE164(strings.Split(senderJID, "@")[0])
+	// 6. Format phone to E.164
+	phoneNumber := formatToE164(strings.Split(contactJID, "@")[0])
 
-	// 8. Ensure contact exists in Chatwoot
-	contactID, err := s.ensureContact(client, config, phoneNumber, contactName, senderJID)
+	// 7. Ensure contact exists in Chatwoot
+	contactID, err := s.ensureContact(client, config, phoneNumber, contactName, contactJID)
 	if err != nil {
 		return fmt.Errorf("failed to ensure contact: %w", err)
 	}
@@ -199,6 +218,12 @@ func (s *Service) HandleIncomingMessage(userID string, evt *events.Message, waCl
 
 // shouldSkipMessage determines if a message should be skipped (noise filter)
 func (s *Service) shouldSkipMessage(evt *events.Message) bool {
+	// CRITICAL: Skip status broadcasts (WhatsApp Status updates)
+	// These cause infinite logs and MUST be filtered first
+	if evt.Info.Chat.Server == "broadcast" || evt.Info.Chat.String() == "status@broadcast" {
+		return true
+	}
+
 	// Skip protocol messages
 	if evt.Message.ProtocolMessage != nil {
 		return true

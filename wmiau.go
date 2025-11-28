@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 	"wuzapi/pkg/chatwoot"
 
@@ -32,6 +33,10 @@ import (
 	waLog "go.mau.fi/whatsmeow/util/log"
 	"golang.org/x/net/proxy"
 )
+
+// Global message dedupe cache for Chatwoot sync
+// Stores message IDs sent via API to prevent duplicates when they echo back
+var messageDedupeCache sync.Map
 
 // db field declaration as *sqlx.DB
 type MyClient struct {
@@ -834,6 +839,22 @@ func (mycli *MyClient) myEventHandler(rawEvt interface{}) {
 
 		// Chatwoot Enterprise Integration
 		go func() {
+			// Check dedupe cache first - skip if this message was sent via Chatwoot API
+			if _, exists := messageDedupeCache.Load(evt.Info.ID); exists {
+				log.Debug().
+					Str("message_id", evt.Info.ID).
+					Msg("Message ID found in dedupe cache, skipping Chatwoot forward (loop prevention)")
+
+				// Schedule cleanup after 5 minutes
+				go func(id string) {
+					time.Sleep(5 * time.Minute)
+					messageDedupeCache.Delete(id)
+					log.Debug().Str("message_id", id).Msg("Removed message from dedupe cache")
+				}(evt.Info.ID)
+
+				return
+			}
+
 			cwService := chatwoot.NewService(mycli.db)
 			if err := cwService.HandleIncomingMessage(mycli.userID, evt, mycli.WAClient); err != nil {
 				log.Debug().Err(err).Str("message_id", evt.Info.ID).Msg("Chatwoot forwarding error")

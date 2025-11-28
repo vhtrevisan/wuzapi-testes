@@ -187,12 +187,16 @@ func (s *server) HandleChatwootWebhook() http.HandlerFunc {
 								caption = fmt.Sprintf("%s\n\n%s", payload.Content, attachment.DataURL)
 							}
 
-							_, err := waClient.SendMessage(ctx, recipientJID, &waE2E.Message{
+							resp, err := waClient.SendMessage(ctx, recipientJID, &waE2E.Message{
 								Conversation: proto.String(caption),
 							})
 
 							if err != nil {
 								log.Error().Err(err).Msg("Failed to send media message to WhatsApp")
+							} else {
+								// Store message ID in dedupe cache to prevent echo
+								messageDedupeCache.Store(resp.ID, true)
+								log.Debug().Str("message_id", resp.ID).Msg("Stored media message ID in dedupe cache")
 							}
 						}
 						return
@@ -202,7 +206,7 @@ func (s *server) HandleChatwootWebhook() http.HandlerFunc {
 
 			// Send text message
 			if payload.Content != "" {
-				_, err := waClient.SendMessage(ctx, recipientJID, &waE2E.Message{
+				resp, err := waClient.SendMessage(ctx, recipientJID, &waE2E.Message{
 					Conversation: proto.String(payload.Content),
 				})
 
@@ -211,10 +215,14 @@ func (s *server) HandleChatwootWebhook() http.HandlerFunc {
 					return
 				}
 
+				// Store message ID in dedupe cache to prevent echo when message comes back
+				messageDedupeCache.Store(resp.ID, true)
+
 				log.Info().
 					Str("recipient_jid", recipientJID.String()).
+					Str("whatsapp_message_id", resp.ID).
 					Int("chatwoot_message_id", payload.ID).
-					Msg("Message sent from Chatwoot to WhatsApp successfully")
+					Msg("Message sent from Chatwoot to WhatsApp successfully (ID stored in dedupe cache)")
 			}
 		}()
 
