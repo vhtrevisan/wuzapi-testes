@@ -281,13 +281,25 @@ func (s *Service) ensureContact(client *Client, config *Config, phoneNumber, nam
 func (s *Service) ensureConversation(userID string, client *Client, config *Config, contactID int, chatJID string) (int, error) {
 	cacheKey := fmt.Sprintf("%s:%s", userID, chatJID)
 
+	log.Debug().
+		Str("user_id", userID).
+		Str("chat_jid", chatJID).
+		Str("cache_key", cacheKey).
+		Int("contact_id", contactID).
+		Msg("ensureConversation: Starting conversation lookup")
+
 	// Check cache first
 	if cached, ok := s.conversationCache.Load(cacheKey); ok {
 		if convID, ok := cached.(int); ok {
-			log.Debug().Int("conversation_id", convID).Msg("Using cached conversation")
+			log.Info().
+				Int("conversation_id", convID).
+				Str("cache_key", cacheKey).
+				Msg("✓ Conversation found in MEMORY cache")
 			return convID, nil
 		}
 	}
+
+	log.Debug().Str("cache_key", cacheKey).Msg("Conversation NOT in memory cache, checking database...")
 
 	// Check database cache
 	var conv ConversationCache
@@ -301,24 +313,45 @@ func (s *Service) ensureConversation(userID string, client *Client, config *Conf
 	if err == nil {
 		// Found in database, cache it
 		s.conversationCache.Store(cacheKey, int(conv.ChatwootConversationID))
-		log.Debug().Int64("conversation_id", conv.ChatwootConversationID).Msg("Conversation found in DB cache")
+		log.Info().
+			Int64("conversation_id", conv.ChatwootConversationID).
+			Str("cache_key", cacheKey).
+			Msg("✓ Conversation found in DATABASE cache, stored in memory")
 		return int(conv.ChatwootConversationID), nil
 	}
 
 	if err != sql.ErrNoRows {
+		log.Error().Err(err).Str("cache_key", cacheKey).Msg("Database error during conversation lookup")
 		return 0, fmt.Errorf("database error: %w", err)
 	}
 
 	// Conversation not found, create new one
-	log.Info().Str("chat_jid", chatJID).Int("contact_id", contactID).Msg("Creating new conversation in Chatwoot")
-
 	inboxID := int(config.InboxID.Int64)
 	sourceID := fmt.Sprintf("wa:%s", chatJID)
 
+	log.Warn().
+		Str("user_id", userID).
+		Str("chat_jid", chatJID).
+		Int("contact_id", contactID).
+		Int("inbox_id", inboxID).
+		Str("source_id", sourceID).
+		Msg("⚠ Conversation NOT found in any cache - CREATING NEW conversation in Chatwoot")
+
 	conversationID, err := client.CreateConversation(contactID, inboxID, sourceID, config.ConversationPending)
 	if err != nil {
+		log.Error().
+			Err(err).
+			Str("source_id", sourceID).
+			Int("contact_id", contactID).
+			Msg("Failed to create conversation in Chatwoot API")
 		return 0, fmt.Errorf("failed to create conversation: %w", err)
 	}
+
+	log.Info().
+		Int("conversation_id", conversationID).
+		Str("source_id", sourceID).
+		Int("contact_id", contactID).
+		Msg("✓ NEW conversation created in Chatwoot successfully")
 
 	// Save to database cache
 	insertQuery := `INSERT INTO chatwoot_conversations 
@@ -335,12 +368,25 @@ func (s *Service) ensureConversation(userID string, client *Client, config *Conf
 
 	_, err = s.db.Exec(insertQuery, userID, chatJID, conversationID, contactID, inboxID)
 	if err != nil {
-		log.Error().Err(err).Msg("Failed to save conversation to cache")
+		log.Error().
+			Err(err).
+			Int("conversation_id", conversationID).
+			Str("chat_jid", chatJID).
+			Msg("⚠ Failed to save conversation to database cache - may cause duplicates on restart!")
 		// Don't fail the whole operation if cache save fails
+	} else {
+		log.Debug().
+			Int("conversation_id", conversationID).
+			Str("chat_jid", chatJID).
+			Msg("✓ Conversation saved to database cache")
 	}
 
 	// Store in memory cache
 	s.conversationCache.Store(cacheKey, conversationID)
+	log.Debug().
+		Int("conversation_id", conversationID).
+		Str("cache_key", cacheKey).
+		Msg("✓ Conversation stored in memory cache")
 
 	return conversationID, nil
 }

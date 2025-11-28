@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -152,6 +153,9 @@ func (s *server) HandleChatwootWebhook() http.HandlerFunc {
 
 		// 8. Send message to WhatsApp (in goroutine to not block Chatwoot)
 		go func() {
+			// Use background context to avoid cancellation when HTTP request ends
+			ctx := context.Background()
+
 			waClient := clientManager.GetWhatsmeowClient(userID)
 			if waClient == nil {
 				log.Error().Str("user_id", userID).Msg("WhatsApp client not found")
@@ -183,7 +187,7 @@ func (s *server) HandleChatwootWebhook() http.HandlerFunc {
 								caption = fmt.Sprintf("%s\n\n%s", payload.Content, attachment.DataURL)
 							}
 
-							_, err := waClient.SendMessage(r.Context(), recipientJID, &waE2E.Message{
+							_, err := waClient.SendMessage(ctx, recipientJID, &waE2E.Message{
 								Conversation: proto.String(caption),
 							})
 
@@ -198,7 +202,7 @@ func (s *server) HandleChatwootWebhook() http.HandlerFunc {
 
 			// Send text message
 			if payload.Content != "" {
-				_, err := waClient.SendMessage(r.Context(), recipientJID, &waE2E.Message{
+				_, err := waClient.SendMessage(ctx, recipientJID, &waE2E.Message{
 					Conversation: proto.String(payload.Content),
 				})
 
