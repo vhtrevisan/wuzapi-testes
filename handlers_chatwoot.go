@@ -8,7 +8,9 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/rs/zerolog/log"
+	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/types"
+	"google.golang.org/protobuf/proto"
 )
 
 // ChatwootWebhookPayload represents the incoming webhook from Chatwoot
@@ -181,8 +183,8 @@ func (s *server) HandleChatwootWebhook() http.HandlerFunc {
 								caption = fmt.Sprintf("%s\n\n%s", payload.Content, attachment.DataURL)
 							}
 
-							_, err := waClient.SendMessage(r.Context(), recipientJID, &types.Message{
-								Conversation: &caption,
+							_, err := waClient.SendMessage(r.Context(), recipientJID, &waE2E.Message{
+								Conversation: proto.String(caption),
 							})
 
 							if err != nil {
@@ -196,8 +198,8 @@ func (s *server) HandleChatwootWebhook() http.HandlerFunc {
 
 			// Send text message
 			if payload.Content != "" {
-				_, err := waClient.SendMessage(r.Context(), recipientJID, &types.Message{
-					Conversation: &payload.Content,
+				_, err := waClient.SendMessage(r.Context(), recipientJID, &waE2E.Message{
+					Conversation: proto.String(payload.Content),
 				})
 
 				if err != nil {
