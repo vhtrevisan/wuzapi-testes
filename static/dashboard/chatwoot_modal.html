@@ -1,0 +1,165 @@
+  \u003c!-- Chatwoot Configuration Modal --\u003e
+  \u003cdiv class=\"ui modal\" id=\"modalChatwootConfig\"\u003e\u003ci class=\"close icon\"\u003e\u003c/i\u003e
+    \u003cdiv class=\"header\"\u003e 
+      \u003ci class=\"rocketchat icon\"\u003e\u003c/i\u003e Chatwoot Integration 
+    \u003c/div\u003e
+    \u003cdiv class=\"content\"\u003e
+      \u003cdiv class=\"ui info message\"\u003e
+        \u003cdiv class=\"header\"\u003eChatwoot Integration Setup\u003c/div\u003e
+        \u003cp\u003eConnect your WhatsApp instance to Chatwoot for professional customer support. All messages will be synchronized automatically.\u003c/p\u003e
+      \u003c/div\u003e
+      
+      \u003cdiv class=\"ui form\"\u003e
+        \u003c!-- Enable Integration Toggle --\u003e
+        \u003cdiv class=\"field\"\u003e
+          \u003cdiv class=\"ui toggle checkbox\" id=\"chatwootEnabledToggle\"\u003e
+            \u003cinput type=\"checkbox\" id=\"chatwootEnabled\"\u003e
+            \u003clabel\u003e\u003cstrong\u003eEnable Integration\u003c/strong\u003e\u003c/label\u003e
+          \u003c/div\u003e
+          \u003csmall\u003eActivate Chatwoot integration for this instance.\u003c/small\u003e
+        \u003c/div\u003e
+
+        \u003cdiv class=\"ui divider\"\u003e\u003c/div\u003e
+
+        \u003c!-- Basic Configuration --\u003e
+        \u003ch4 class=\"ui dividing header\"\u003eBasic Configuration\u003c/h4\u003e
+        
+        \u003cdiv class=\"field\" id=\"chatwootUrlField\"\u003e
+          \u003clabel\u003eChatwoot URL \u003cspan style=\"color: red;\"\u003e*\u003c/span\u003e\u003c/label\u003e
+          \u003cinput id=\"chatwootUrl\" type=\"url\" placeholder=\"https://app.chatwoot.com\"\u003e
+          \u003csmall\u003eYour Chatwoot instance URL (e.g., https://app.chatwoot.com).\u003c/small\u003e
+        \u003c/div\u003e
+
+        \u003cdiv class=\"two fields\"\u003e
+          \u003cdiv class=\"field\"\u003e
+            \u003clabel\u003eAccount ID \u003cspan style=\"color: red;\"\u003e*\u003c/span\u003e\u003c/label\u003e
+            \u003cinput id=\"chatwootAccountId\" type=\"text\" placeholder=\"12345\"\u003e
+            \u003csmall\u003eFound in Chatwoot Settings → Account.\u003c/small\u003e
+          \u003c/div\u003e
+          
+          \u003cdiv class=\"field\"\u003e
+            \u003clabel\u003eAccess Token \u003cspan style=\"color: red;\"\u003e*\u003c/span\u003e\u003c/label\u003e
+            \u003cinput id=\"chatwootToken\" type=\"password\" placeholder=\"Your API access token\"\u003e
+            \u003csmall\u003eFound in Chatwoot Profile Settings → Access Token.\u003c/small\u003e
+          \u003c/div\u003e
+        \u003c/div\u003e
+
+        \u003cdiv class=\"field\"\u003e
+          \u003clabel\u003eInbox Name \u003cspan style=\"color: gray;\"\u003e(Optional)\u003c/span\u003e\u003c/label\u003e
+          \u003cinput id=\"chatwootInboxName\" type=\"text\" placeholder=\"Wuzapi\"\u003e
+          \u003csmall\u003eCustom name for the inbox to be created. Default: \"Wuzapi\".\u003c/small\u003e
+        \u003c/div\u003e
+
+        \u003c!-- Auto-Create Section --\u003e
+        \u003cdiv class=\"ui segment\" style=\"background-color: #f8fcff; border-left: 3px solid #2185d0;\"\u003e
+          \u003cdiv class=\"field\"\u003e
+            \u003cdiv class=\"ui toggle checkbox\" id=\"chatwootAutoCreateToggle\"\u003e
+              \u003cinput type=\"checkbox\" id=\"chatwootAutoCreate\" checked\u003e
+              \u003clabel\u003e\u003cstrong\u003e\u003ci class=\"magic icon\"\u003e\u003c/i\u003e Auto Create Inbox \u0026 Webhook\u003c/strong\u003e\u003c/label\u003e
+            \u003c/div\u003e
+            \u003csmall\u003e
+              \u003ci class=\"info circle icon\"\u003e\u003c/i\u003e
+              If checked, we will automatically create the Inbox in Chatwoot and configure the webhook URL for you. 
+              \u003cstrong\u003eRecommended for first-time setup.\u003c/strong\u003e
+            \u003c/small\u003e
+          \u003c/div\u003e
+        \u003c/div\u003e
+
+        \u003c!-- Webhook URL Display (Read-only) --\u003e
+        \u003cdiv class=\"field\"\u003e
+          \u003clabel\u003eWebhook URL \u003cspan style=\"color: gray;\"\u003e(Auto-generated)\u003c/span\u003e\u003c/label\u003e
+          \u003cdiv class=\"ui action input\"\u003e
+            \u003cinput id=\"chatwootWebhookUrl\" type=\"text\" readonly placeholder=\"Will be generated after saving...\"\u003e
+            \u003cbutton class=\"ui icon button\" id=\"copyWebhookUrl\" title=\"Copy to clipboard\"\u003e
+              \u003ci class=\"copy icon\"\u003e\u003c/i\u003e
+            \u003c/button\u003e
+          \u003c/div\u003e
+          \u003csmall\u003eThis URL will be automatically registered in Chatwoot if Auto Create is enabled.\u003c/small\u003e
+        \u003c/div\u003e
+
+        \u003c!-- Advanced Options (Collapsible) --\u003e
+        \u003cdiv class=\"ui accordion\"\u003e
+          \u003cdiv class=\"title\"\u003e
+            \u003ci class=\"dropdown icon\"\u003e\u003c/i\u003e
+            \u003cstrong\u003eAdvanced Options\u003c/strong\u003e
+          \u003c/div\u003e
+          \u003cdiv class=\"content\"\u003e
+            \u003cdiv class=\"ui form\"\u003e
+              \u003cdiv class=\"field\"\u003e
+                \u003cdiv class=\"ui toggle checkbox\"\u003e
+                  \u003cinput type=\"checkbox\" id=\"chatwootSignMsg\"\u003e
+                  \u003clabel\u003eSign Messages\u003c/label\u003e
+                \u003c/div\u003e
+                \u003csmall\u003ePrefix agent messages with their name (e.g., \"*John:* Hello\").\u003c/small\u003e
+              \u003c/div\u003e
+
+              \u003cdiv class=\"field\"\u003e
+                \u003clabel\u003eSign Delimiter\u003c/label\u003e
+                \u003cinput id=\"chatwootSignDelimiter\" type=\"text\" placeholder=\"\\n\" value=\"\\n\"\u003e
+                \u003csmall\u003eDelimiter between agent name and message. Default: newline (\\n).\u003c/small\u003e
+              \u003c/div\u003e
+
+              \u003cdiv class=\"field\"\u003e
+                \u003cdiv class=\"ui toggle checkbox\"\u003e
+                  \u003cinput type=\"checkbox\" id=\"chatwootReopenConversation\"\u003e
+                  \u003clabel\u003eReopen Conversation\u003c/label\u003e
+                \u003c/div\u003e
+                \u003csmall\u003eAutomatically reopen resolved conversations when new messages arrive.\u003c/small\u003e
+              \u003c/div\u003e
+
+              \u003cdiv class=\"field\"\u003e
+                \u003cdiv class=\"ui toggle checkbox\"\u003e
+                  \u003cinput type=\"checkbox\" id=\"chatwootConversationPending\"\u003e
+                  \u003clabel\u003eConversation Pending\u003c/label\u003e
+                \u003c/div\u003e
+                \u003csmall\u003eSet new conversations status to \"Pending\" instead of \"Open\".\u003c/small\u003e
+              \u003c/div\u003e
+
+              \u003cdiv class=\"field\"\u003e
+                \u003cdiv class=\"ui toggle checkbox\"\u003e
+                  \u003cinput type=\"checkbox\" id=\"chatwootMergeBrazilContacts\"\u003e
+                  \u003clabel\u003eMerge Brazil Contacts\u003c/label\u003e
+                \u003c/div\u003e
+                \u003csmall\u003eMerge contacts with/without 9th digit (Brazil only).\u003c/small\u003e
+              \u003c/div\u003e
+
+              \u003cdiv class=\"two fields\"\u003e
+                \u003cdiv class=\"field\"\u003e
+                  \u003clabel\u003eOrganization Name\u003c/label\u003e
+                  \u003cinput id=\"chatwootOrganization\" type=\"text\" placeholder=\"Wuzapi\"\u003e
+                  \u003csmall\u003eUsed for bot contact name.\u003c/small\u003e
+                \u003c/div\u003e
+                
+                \u003cdiv class=\"field\"\u003e
+                  \u003clabel\u003eLogo URL\u003c/label\u003e
+                  \u003cinput id=\"chatwootLogo\" type=\"url\" placeholder=\"https://...\"\u003e
+                  \u003csmall\u003eAvatar URL for bot contact.\u003c/small\u003e
+                \u003c/div\u003e
+              \u003c/div\u003e
+            \u003c/div\u003e
+          \u003c/div\u003e
+        \u003c/div\u003e
+
+        \u003c!-- Current Status (if already configured) --\u003e
+        \u003cdiv class=\"ui success message\" id=\"chatwootCurrentStatus\" style=\"display: none;\"\u003e
+          \u003cdiv class=\"header\"\u003eCurrent Configuration\u003c/div\u003e
+          \u003cul class=\"list\"\u003e
+            \u003cli\u003e\u003cstrong\u003eInbox ID:\u003c/strong\u003e \u003cspan id=\"chatwootCurrentInboxId\"\u003e-\u003c/span\u003e\u003c/li\u003e
+            \u003cli\u003e\u003cstrong\u003eStatus:\u003c/strong\u003e \u003cspan id=\"chatwootCurrentEnabled\"\u003e-\u003c/span\u003e\u003c/li\u003e
+            \u003cli\u003e\u003cstrong\u003eLast Updated:\u003c/strong\u003e \u003cspan id=\"chatwootCurrentUpdated\"\u003e-\u003c/span\u003e\u003c/li\u003e
+          \u003c/ul\u003e
+        \u003c/div\u003e
+
+      \u003c/div\u003e
+    \u003c/div\u003e
+    \u003cdiv class=\"actions\"\u003e
+      \u003cdiv class=\"ui cancel button secondary\"\u003eCancel\u003c/div\u003e
+      \u003cdiv class=\"ui red button\" id=\"deleteChatwootConfig\" style=\"display: none;\"\u003e
+        \u003ci class=\"trash icon\"\u003e\u003c/i\u003e Delete Configuration
+      \u003c/div\u003e
+      \u003cdiv class=\"ui positive right labeled icon button\" id=\"saveChatwootConfig\"\u003e
+        Save \u0026 Connect
+        \u003ci class=\"checkmark icon\"\u003e\u003c/i\u003e
+      \u003c/div\u003e
+    \u003c/div\u003e
+  \u003c/div\u003e
