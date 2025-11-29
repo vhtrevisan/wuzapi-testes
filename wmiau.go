@@ -27,11 +27,13 @@ import (
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/appstate"
 	"go.mau.fi/whatsmeow/proto/waCompanionReg"
+	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/store"
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
 	waLog "go.mau.fi/whatsmeow/util/log"
 	"golang.org/x/net/proxy"
+	"google.golang.org/protobuf/proto"
 )
 
 // Global message dedupe cache for Chatwoot sync
@@ -1782,6 +1784,25 @@ func (mycli *MyClient) myEventHandler(rawEvt interface{}) {
 		postmap["type"] = "UndecryptableMessage"
 		dowebhook = 1
 		log.Warn().Str("info", evt.Info.SourceString()).Msg("Undecryptable message received")
+
+		// CRITICAL: Create Chatwoot conversation for undecryptable messages (new contacts)
+		go func() {
+			cwService := chatwoot.NewService(mycli.db)
+
+			// Create placeholder Message event to trigger conversation creation
+			placeholderEvt := &events.Message{
+				Info: evt.Info,
+				Message: &waE2E.Message{
+					Conversation: proto.String("[Aguardando descriptografia...]"),
+				},
+			}
+
+			if err := cwService.HandleIncomingMessage(mycli.userID, placeholderEvt, mycli.WAClient); err != nil {
+				log.Debug().Err(err).Msg("Failed to create Chatwoot conversation for undecryptable")
+			} else {
+				log.Info().Str("chat", evt.Info.Chat.String()).Msg("✓ Conversation created for undecryptable message")
+			}
+		}()
 	case *events.MediaRetry:
 		postmap["type"] = "MediaRetry"
 		dowebhook = 1

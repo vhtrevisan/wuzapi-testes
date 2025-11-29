@@ -95,8 +95,8 @@ func initializeSQLite(config DatabaseConfig) (*sqlx.DB, error) {
 	}
 
 	dbPath := filepath.Join(config.Path, "users.db")
-	// MUDANÇA 3a: Aumentar busy_timeout de 3000 para 10000 (10 segundos)
-	db, err := sqlx.Open("sqlite", dbPath+"?_pragma=foreign_keys(1)&_busy_timeout=10000")
+	// Aumentar busy_timeout para 60 segundos (whatsmeow precisa para LID mappings)
+	db, err := sqlx.Open("sqlite", dbPath+"?_pragma=foreign_keys(1)&_busy_timeout=60000")
 	if err != nil {
 		return nil, fmt.Errorf("failed to open sqlite database: %w", err)
 	}
@@ -105,17 +105,17 @@ func initializeSQLite(config DatabaseConfig) (*sqlx.DB, error) {
 		return nil, fmt.Errorf("failed to ping sqlite database: %w", err)
 	}
 
-	// MUDANÇA 3b: Forçar conexão única para evitar locks
-	// TEMPORARIAMENTE COMENTADO - estava causando deadlock em /users
-	// db.SetMaxOpenConns(1)
+	// Configurar pool de conexões para WAL mode (permite 1 write + múltiplos reads)
+	db.SetMaxOpenConns(3)
+	db.SetMaxIdleConns(1)
+	db.SetConnMaxLifetime(time.Hour)
 
-	// MUDANÇA 3c: Configurar WAL mode para melhor concorrência
-	_, err = db.Exec("PRAGMA journal_mode = WAL")
-	if err != nil {
-		log.Warn().Err(err).Msg("Failed to enable WAL mode for SQLite")
-	} else {
-		log.Info().Msg("SQLite configured with busy_timeout=10s and WAL mode")
+	// Habilitar WAL mode para melhor concorrência
+	if _, err := db.Exec("PRAGMA journal_mode = WAL"); err != nil {
+		log.Warn().Err(err).Msg("Failed to enable WAL mode")
 	}
+
+	log.Info().Msg("SQLite configured: busy_timeout=60s, MaxOpenConns=3, WAL enabled")
 
 	return db, nil
 }
