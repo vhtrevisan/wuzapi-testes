@@ -4523,25 +4523,25 @@ func (s *server) ListNewsletter() http.HandlerFunc {
 // Admin List users
 func (s *server) ListUsers() http.HandlerFunc {
 	type usersStruct struct {
-		Id                string         `db:"id"`
-		Name              string         `db:"name"`
-		Token             string         `db:"token"`
-		Webhook           string         `db:"webhook"`
-		Jid               string         `db:"jid"`
-		Qrcode            string         `db:"qrcode"`
-		Connected         sql.NullBool   `db:"connected"`
-		Expiration        sql.NullInt64  `db:"expiration"`
-		ProxyURL          sql.NullString `db:"proxy_url"`
-		Events            string         `db:"events"`
-		History           sql.NullInt64  `db:"history"`
-		S3Enabled         sql.NullBool   `db:"s3_enabled"`
-		S3Endpoint        sql.NullString `db:"s3_endpoint"`
-		S3Region          sql.NullString `db:"s3_region"`
-		S3Bucket          sql.NullString `db:"s3_bucket"`
-		S3PathStyle       sql.NullBool   `db:"s3_path_style"`
-		S3PublicURL       sql.NullString `db:"s3_public_url"`
-		MediaDelivery     sql.NullString `db:"media_delivery"`
-		S3RetentionDays   sql.NullInt64  `db:"s3_retention_days"`
+		Id              string         `db:"id"`
+		Name            string         `db:"name"`
+		Token           string         `db:"token"`
+		Webhook         string         `db:"webhook"`
+		Jid             string         `db:"jid"`
+		Qrcode          string         `db:"qrcode"`
+		Connected       sql.NullBool   `db:"connected"`
+		Expiration      sql.NullInt64  `db:"expiration"`
+		ProxyURL        sql.NullString `db:"proxy_url"`
+		Events          string         `db:"events"`
+		History         sql.NullInt64  `db:"history"`
+		S3Enabled       sql.NullBool   `db:"s3_enabled"`
+		S3Endpoint      sql.NullString `db:"s3_endpoint"`
+		S3Region        sql.NullString `db:"s3_region"`
+		S3Bucket        sql.NullString `db:"s3_bucket"`
+		S3PathStyle     sql.NullBool   `db:"s3_path_style"`
+		S3PublicURL     sql.NullString `db:"s3_public_url"`
+		MediaDelivery   sql.NullString `db:"media_delivery"`
+		S3RetentionDays sql.NullInt64  `db:"s3_retention_days"`
 	}
 	return func(w http.ResponseWriter, r *http.Request) {
 		vars := mux.Vars(r)
@@ -4573,7 +4573,7 @@ func (s *server) ListUsers() http.HandlerFunc {
 
 		// Create a slice to store the user data
 		users := []map[string]interface{}{}
-		
+
 		// Iterate over the rows and populate the user data
 		for rows.Next() {
 			var user usersStruct
@@ -4604,14 +4604,14 @@ func (s *server) ListUsers() http.HandlerFunc {
 				"proxy_url":  user.ProxyURL.String,
 				"events":     user.Events,
 			}
-			
+
 			// Add proxy_config
 			proxyURL := user.ProxyURL.String
 			userMap["proxy_config"] = map[string]interface{}{
 				"enabled":   proxyURL != "",
 				"proxy_url": proxyURL,
 			}
-			
+
 			// Add s3_config from the same query result
 			s3Config := map[string]interface{}{
 				"enabled":        user.S3Enabled.Bool,
@@ -4624,11 +4624,11 @@ func (s *server) ListUsers() http.HandlerFunc {
 				"media_delivery": user.MediaDelivery.String,
 				"retention_days": user.S3RetentionDays.Int64,
 			}
-			
+
 			userMap["s3_config"] = s3Config
 			users = append(users, userMap)
 		}
-		
+
 		// Check for any error that occurred during iteration
 		if err := rows.Err(); err != nil {
 			s.Respond(w, r, http.StatusInternalServerError, errors.New("problem accessing DB"))
@@ -4644,7 +4644,6 @@ func (s *server) ListUsers() http.HandlerFunc {
 
 		s.Respond(w, r, http.StatusOK, string(responseJson))
 	}
-}
 }
 
 // Add user
