@@ -3,13 +3,14 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"wuzapi/pkg/chatwoot"
 
 	"github.com/gorilla/mux"
 	"github.com/rs/zerolog/log"
+	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/types"
 	"google.golang.org/protobuf/proto"
@@ -200,27 +201,114 @@ func (s *server) HandleChatwootWebhook() http.HandlerFunc {
 							Str("attachment_url", attachment.DataURL).
 							Str("file_type", attachment.FileType).
 							Msg("Sending media from Chatwoot to WhatsApp")
-
-						// TODO: Download attachment.DataURL and send as media
-						// For now, send the URL as text
-						caption := payload.Content
-						if caption == "" {
-							caption = attachment.DataURL
-						} else {
-							caption = fmt.Sprintf("%s\n\n%s", payload.Content, attachment.DataURL)
+						// Download media from Chatwoot
+						mediaResp, err := http.Get(attachment.DataURL)
+						if err != nil {
+							log.Error().Err(err).Msg("Failed to download media from Chatwoot")
+							continue
 						}
-
-						resp, err := waClient.SendMessage(ctx, recipientJID, &waE2E.Message{
-							Conversation: proto.String(caption),
-						})
-
+						defer mediaResp.Body.Close()
+						mediaData, err := io.ReadAll(mediaResp.Body)
+						if err != nil {
+							log.Error().Err(err).Msg("Failed to read media data")
+							continue
+						}
+						// Determine WhatsApp message type based on file_type
+						var whatsappMsg *waE2E.Message
+						switch {
+						case strings.HasPrefix(attachment.FileType, "image"):
+							whatsappMsg = &waE2E.Message{
+								ImageMessage: &waE2E.ImageMessage{
+									Caption:       proto.String(payload.Content),
+									Mimetype:      proto.String(attachment.FileType),
+									JPEGThumbnail: []byte{},
+								},
+							}
+							uploadedMedia, err := waClient.Upload(ctx, mediaData, whatsmeow.MediaImage)
+							if err != nil {
+								log.Error().Err(err).Msg("Failed to upload image")
+								continue
+							}
+							whatsappMsg.ImageMessage.URL = proto.String(uploadedMedia.URL)
+							whatsappMsg.ImageMessage.DirectPath = proto.String(uploadedMedia.DirectPath)
+							whatsappMsg.ImageMessage.MediaKey = uploadedMedia.MediaKey
+							whatsappMsg.ImageMessage.FileEncSHA256 = uploadedMedia.FileEncSHA256
+							whatsappMsg.ImageMessage.FileSHA256 = uploadedMedia.FileSHA256
+							whatsappMsg.ImageMessage.FileLength = proto.Uint64(uploadedMedia.FileLength)
+						case strings.HasPrefix(attachment.FileType, "video"):
+							whatsappMsg = &waE2E.Message{
+								VideoMessage: &waE2E.VideoMessage{
+									Caption:       proto.String(payload.Content),
+									Mimetype:      proto.String(attachment.FileType),
+									JPEGThumbnail: []byte{},
+								},
+							}
+							uploadedMedia, err := waClient.Upload(ctx, mediaData, whatsmeow.MediaVideo)
+							if err != nil {
+								log.Error().Err(err).Msg("Failed to upload video")
+								continue
+							}
+							whatsappMsg.VideoMessage.URL = proto.String(uploadedMedia.URL)
+							whatsappMsg.VideoMessage.DirectPath = proto.String(uploadedMedia.DirectPath)
+							whatsappMsg.VideoMessage.MediaKey = uploadedMedia.MediaKey
+							whatsappMsg.VideoMessage.FileEncSHA256 = uploadedMedia.FileEncSHA256
+							whatsappMsg.VideoMessage.FileSHA256 = uploadedMedia.FileSHA256
+							whatsappMsg.VideoMessage.FileLength = proto.Uint64(uploadedMedia.FileLength)
+						case strings.HasPrefix(attachment.FileType, "audio"):
+							whatsappMsg = &waE2E.Message{
+								AudioMessage: &waE2E.AudioMessage{
+									Mimetype: proto.String(attachment.FileType),
+									PTT:      proto.Bool(false), // Not push-to-talk
+								},
+							}
+							uploadedMedia, err := waClient.Upload(ctx, mediaData, whatsmeow.MediaAudio)
+							if err != nil {
+								log.Error().Err(err).Msg("Failed to upload audio")
+								continue
+							}
+							whatsappMsg.AudioMessage.URL = proto.String(uploadedMedia.URL)
+							whatsappMsg.AudioMessage.DirectPath = proto.String(uploadedMedia.DirectPath)
+							whatsappMsg.AudioMessage.MediaKey = uploadedMedia.MediaKey
+							whatsappMsg.AudioMessage.FileEncSHA256 = uploadedMedia.FileEncSHA256
+							whatsappMsg.AudioMessage.FileSHA256 = uploadedMedia.FileSHA256
+							whatsappMsg.AudioMessage.FileLength = proto.Uint64(uploadedMedia.FileLength)
+						default: // Document (PDF, Excel, etc.)
+							filename := "document"
+							if len(attachment.DataURL) > 0 {
+								// Extract filename from URL if possible
+								parts := strings.Split(attachment.DataURL, "/")
+								if len(parts) > 0 {
+									filename = parts[len(parts)-1]
+								}
+							}
+							whatsappMsg = &waE2E.Message{
+								DocumentMessage: &waE2E.DocumentMessage{
+									Caption:       proto.String(payload.Content),
+									Mimetype:      proto.String(attachment.FileType),
+									FileName:      proto.String(filename),
+									JPEGThumbnail: []byte{},
+								},
+							}
+							uploadedMedia, err := waClient.Upload(ctx, mediaData, whatsmeow.MediaDocument)
+							if err != nil {
+								log.Error().Err(err).Msg("Failed to upload document")
+								continue
+							}
+							whatsappMsg.DocumentMessage.URL = proto.String(uploadedMedia.URL)
+							whatsappMsg.DocumentMessage.DirectPath = proto.String(uploadedMedia.DirectPath)
+							whatsappMsg.DocumentMessage.MediaKey = uploadedMedia.MediaKey
+							whatsappMsg.DocumentMessage.FileEncSHA256 = uploadedMedia.FileEncSHA256
+							whatsappMsg.DocumentMessage.FileSHA256 = uploadedMedia.FileSHA256
+							whatsappMsg.DocumentMessage.FileLength = proto.Uint64(uploadedMedia.FileLength)
+						}
+						// Send media message
+						resp, err := waClient.SendMessage(ctx, recipientJID, whatsappMsg)
 						if err != nil {
 							log.Error().Err(err).Msg("Failed to send media message to WhatsApp")
 							respondJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to send media"})
 							return
 						}
-
-						// Store message ID in dedupe cache to prevent echo
+						// Store message ID in dedupe cache
 						messageDedupeCache.Store(resp.ID, true)
 						log.Debug().Str("message_id", resp.ID).Msg("Stored media message ID in dedupe cache")
 					}
