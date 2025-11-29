@@ -106,14 +106,15 @@ func initializeSQLite(config DatabaseConfig) (*sqlx.DB, error) {
 	}
 
 	// MUDANÇA 3b: Forçar conexão única para evitar locks
-	db.SetMaxOpenConns(1)
+	// TEMPORARIAMENTE COMENTADO - estava causando deadlock em /users
+	// db.SetMaxOpenConns(1)
 
 	// MUDANÇA 3c: Configurar WAL mode para melhor concorrência
 	_, err = db.Exec("PRAGMA journal_mode = WAL")
 	if err != nil {
 		log.Warn().Err(err).Msg("Failed to enable WAL mode for SQLite")
 	} else {
-		log.Info().Msg("SQLite configured with busy_timeout=10s, MaxOpenConns=1, and WAL mode")
+		log.Info().Msg("SQLite configured with busy_timeout=10s and WAL mode")
 	}
 
 	return db, nil
