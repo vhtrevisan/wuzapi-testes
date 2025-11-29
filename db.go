@@ -8,6 +8,7 @@ import (
 
 	"github.com/jmoiron/sqlx"
 	_ "github.com/lib/pq"
+	"github.com/rs/zerolog/log"
 	_ "modernc.org/sqlite"
 )
 
@@ -94,13 +95,25 @@ func initializeSQLite(config DatabaseConfig) (*sqlx.DB, error) {
 	}
 
 	dbPath := filepath.Join(config.Path, "users.db")
-	db, err := sqlx.Open("sqlite", dbPath+"?_pragma=foreign_keys(1)&_busy_timeout=3000")
+	// MUDANÇA 3a: Aumentar busy_timeout de 3000 para 10000 (10 segundos)
+	db, err := sqlx.Open("sqlite", dbPath+"?_pragma=foreign_keys(1)&_busy_timeout=10000")
 	if err != nil {
 		return nil, fmt.Errorf("failed to open sqlite database: %w", err)
 	}
 
 	if err := db.Ping(); err != nil {
 		return nil, fmt.Errorf("failed to ping sqlite database: %w", err)
+	}
+
+	// MUDANÇA 3b: Forçar conexão única para evitar locks
+	db.SetMaxOpenConns(1)
+
+	// MUDANÇA 3c: Configurar WAL mode para melhor concorrência
+	_, err = db.Exec("PRAGMA journal_mode = WAL")
+	if err != nil {
+		log.Warn().Err(err).Msg("Failed to enable WAL mode for SQLite")
+	} else {
+		log.Info().Msg("SQLite configured with busy_timeout=10s, MaxOpenConns=1, and WAL mode")
 	}
 
 	return db, nil

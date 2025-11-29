@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"wuzapi/pkg/chatwoot"
 
 	"github.com/gorilla/mux"
 	"github.com/rs/zerolog/log"
@@ -27,6 +28,7 @@ type ChatwootWebhookPayload struct {
 		Status string `json:"status"`
 		Meta   struct {
 			Sender struct {
+				ID          int    `json:"id"`
 				Identifier  string `json:"identifier"`
 				PhoneNumber string `json:"phone_number"`
 			} `json:"sender"`
@@ -63,7 +65,7 @@ func (s *server) HandleChatwootWebhook() http.HandlerFunc {
 
 		if token == "" {
 			log.Warn().Msg("Chatwoot webhook called without token")
-			s.Respond(w, r, http.StatusUnauthorized, "Missing token")
+			respondJSON(w, http.StatusUnauthorized, map[string]string{"error": "missing token"})
 			return
 		}
 
@@ -75,7 +77,7 @@ func (s *server) HandleChatwootWebhook() http.HandlerFunc {
 			err := s.db.Get(&userID, "SELECT id FROM users WHERE token=$1 LIMIT 1", token)
 			if err != nil {
 				log.Warn().Str("token", token).Msg("Chatwoot webhook: user not found")
-				s.Respond(w, r, http.StatusUnauthorized, "Invalid token")
+				respondJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid token"})
 				return
 			}
 		} else {
@@ -86,7 +88,7 @@ func (s *server) HandleChatwootWebhook() http.HandlerFunc {
 		var payload ChatwootWebhookPayload
 		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 			log.Error().Err(err).Msg("Failed to parse Chatwoot webhook payload")
-			s.Respond(w, r, http.StatusBadRequest, "Invalid payload")
+			respondJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid payload"})
 			return
 		}
 
@@ -100,19 +102,19 @@ func (s *server) HandleChatwootWebhook() http.HandlerFunc {
 		// 4. Filter events - only process outgoing messages from agents
 		if payload.Event != "message_created" {
 			log.Debug().Str("event", payload.Event).Msg("Ignoring non-message_created event")
-			s.RespondJSON(w, r, http.StatusOK, map[string]string{"status": "ignored", "reason": "not message_created"})
+			respondJSON(w, http.StatusOK, map[string]string{"status": "ignored", "reason": "not message_created"})
 			return
 		}
 
 		if payload.MessageType != "outgoing" {
 			log.Debug().Str("message_type", payload.MessageType).Msg("Ignoring non-outgoing message")
-			s.RespondJSON(w, r, http.StatusOK, map[string]string{"status": "ignored", "reason": "not outgoing"})
+			respondJSON(w, http.StatusOK, map[string]string{"status": "ignored", "reason": "not outgoing"})
 			return
 		}
 
 		if payload.Private {
 			log.Debug().Msg("Ignoring private note")
-			s.RespondJSON(w, r, http.StatusOK, map[string]string{"status": "ignored", "reason": "private note"})
+			respondJSON(w, http.StatusOK, map[string]string{"status": "ignored", "reason": "private note"})
 			return
 		}
 
@@ -121,7 +123,7 @@ func (s *server) HandleChatwootWebhook() http.HandlerFunc {
 			firstMsg := payload.Conversation.Messages[0]
 			if strings.HasPrefix(firstMsg.SourceID, "WAID:") && firstMsg.ID == payload.ID {
 				log.Debug().Int("message_id", payload.ID).Msg("Ignoring message sent by Wuzapi (loop prevention)")
-				s.RespondJSON(w, r, http.StatusOK, map[string]string{"status": "ignored", "reason": "loop prevention"})
+				respondJSON(w, http.StatusOK, map[string]string{"status": "ignored", "reason": "loop prevention"})
 				return
 			}
 		}
@@ -138,7 +140,7 @@ func (s *server) HandleChatwootWebhook() http.HandlerFunc {
 
 		if chatID == "" {
 			log.Error().Msg("Could not extract destination phone from Chatwoot webhook")
-			s.RespondJSON(w, r, http.StatusBadRequest, map[string]string{"status": "error", "reason": "no destination"})
+			respondJSON(w, http.StatusBadRequest, map[string]string{"error": "no destination"})
 			return
 		}
 
@@ -151,88 +153,114 @@ func (s *server) HandleChatwootWebhook() http.HandlerFunc {
 			Str("content", payload.Content).
 			Msg("Sending message from Chatwoot to WhatsApp")
 
-		// 8. Send message to WhatsApp (in goroutine to not block Chatwoot)
-		go func() {
-			// Use background context to avoid cancellation when HTTP request ends
-			ctx := context.Background()
-
-			waClient := clientManager.GetWhatsmeowClient(userID)
-			if waClient == nil {
-				log.Error().Str("user_id", userID).Msg("WhatsApp client not found")
-				return
+		// 8. FIRST: Save conversation to cache BEFORE sending (even if send fails)
+		if payload.Conversation.ID > 0 {
+			cwService := chatwoot.NewService(s.db)
+			chatJID := recipientJID.String()
+			err := cwService.StoreConversationFromWebhook(
+				userID,
+				chatJID,
+				payload.Conversation.ID,
+				payload.Conversation.Meta.Sender.ID,
+				payload.Inbox.ID,
+			)
+			if err != nil {
+				log.Warn().Err(err).Msg("Failed to store conversation from webhook")
 			}
+		}
 
-			if !waClient.IsLoggedIn() {
-				log.Error().Str("user_id", userID).Msg("WhatsApp client not logged in")
-				return
-			}
+		// 9. THEN: Send message to WhatsApp (SYNCHRONOUSLY - no goroutine)
+		ctx := context.Background()
+		waClient := clientManager.GetWhatsmeowClient(userID)
+		if waClient == nil {
+			log.Error().Str("user_id", userID).Msg("WhatsApp client not found")
+			respondJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "whatsapp client not ready"})
+			return
+		}
 
-			// Check for attachments
-			if len(payload.Conversation.Messages) > 0 {
-				for _, msg := range payload.Conversation.Messages {
-					if msg.ID == payload.ID && len(msg.Attachments) > 0 {
-						// Has attachments - send media
-						for _, attachment := range msg.Attachments {
-							log.Info().
-								Str("attachment_url", attachment.DataURL).
-								Str("file_type", attachment.FileType).
-								Msg("Sending media from Chatwoot to WhatsApp")
+		if !waClient.IsLoggedIn() {
+			log.Error().Str("user_id", userID).Msg("WhatsApp client not logged in")
+			respondJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "whatsapp not logged in"})
+			return
+		}
 
-							// TODO: Download attachment.DataURL and send as media
-							// For now, send the URL as text
-							caption := payload.Content
-							if caption == "" {
-								caption = attachment.DataURL
-							} else {
-								caption = fmt.Sprintf("%s\n\n%s", payload.Content, attachment.DataURL)
-							}
+		if !waClient.IsConnected() {
+			log.Error().Str("user_id", userID).Msg("WhatsApp client not connected")
+			respondJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "whatsapp disconnected"})
+			return
+		}
 
-							resp, err := waClient.SendMessage(ctx, recipientJID, &waE2E.Message{
-								Conversation: proto.String(caption),
-							})
+		// Check for attachments
+		if len(payload.Conversation.Messages) > 0 {
+			for _, msg := range payload.Conversation.Messages {
+				if msg.ID == payload.ID && len(msg.Attachments) > 0 {
+					// Has attachments - send media
+					for _, attachment := range msg.Attachments {
+						log.Info().
+							Str("attachment_url", attachment.DataURL).
+							Str("file_type", attachment.FileType).
+							Msg("Sending media from Chatwoot to WhatsApp")
 
-							if err != nil {
-								log.Error().Err(err).Msg("Failed to send media message to WhatsApp")
-							} else {
-								// Store message ID in dedupe cache to prevent echo
-								messageDedupeCache.Store(resp.ID, true)
-								log.Debug().Str("message_id", resp.ID).Msg("Stored media message ID in dedupe cache")
-							}
+						// TODO: Download attachment.DataURL and send as media
+						// For now, send the URL as text
+						caption := payload.Content
+						if caption == "" {
+							caption = attachment.DataURL
+						} else {
+							caption = fmt.Sprintf("%s\n\n%s", payload.Content, attachment.DataURL)
 						}
-						return
+
+						resp, err := waClient.SendMessage(ctx, recipientJID, &waE2E.Message{
+							Conversation: proto.String(caption),
+						})
+
+						if err != nil {
+							log.Error().Err(err).Msg("Failed to send media message to WhatsApp")
+							respondJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to send media"})
+							return
+						}
+
+						// Store message ID in dedupe cache to prevent echo
+						messageDedupeCache.Store(resp.ID, true)
+						log.Debug().Str("message_id", resp.ID).Msg("Stored media message ID in dedupe cache")
 					}
-				}
-			}
 
-			// Send text message
-			if payload.Content != "" {
-				resp, err := waClient.SendMessage(ctx, recipientJID, &waE2E.Message{
-					Conversation: proto.String(payload.Content),
-				})
-
-				if err != nil {
-					log.Error().Err(err).Msg("Failed to send text message to WhatsApp")
+					// 10. Return success
+					respondJSON(w, http.StatusOK, map[string]string{"status": "success"})
 					return
 				}
-
-				// Store message ID in dedupe cache to prevent echo when message comes back
-				messageDedupeCache.Store(resp.ID, true)
-
-				log.Info().
-					Str("recipient_jid", recipientJID.String()).
-					Str("whatsapp_message_id", resp.ID).
-					Int("chatwoot_message_id", payload.ID).
-					Msg("Message sent from Chatwoot to WhatsApp successfully (ID stored in dedupe cache)")
 			}
-		}()
+		}
 
-		// 9. Return success immediately (don't wait for WhatsApp send)
-		s.RespondJSON(w, r, http.StatusOK, map[string]string{"status": "success"})
+		// Send text message
+		if payload.Content != "" {
+			resp, err := waClient.SendMessage(ctx, recipientJID, &waE2E.Message{
+				Conversation: proto.String(payload.Content),
+			})
+
+			if err != nil {
+				log.Error().Err(err).Msg("Failed to send text message to WhatsApp")
+				respondJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to send message"})
+				return
+			}
+
+			// Store message ID in dedupe cache to prevent echo when message comes back
+			messageDedupeCache.Store(resp.ID, true)
+
+			log.Info().
+				Str("recipient_jid", recipientJID.String()).
+				Str("whatsapp_message_id", resp.ID).
+				Int("chatwoot_message_id", payload.ID).
+				Msg("Message sent from Chatwoot to WhatsApp successfully (ID stored in dedupe cache)")
+		}
+
+		// 10. Return success
+		respondJSON(w, http.StatusOK, map[string]string{"status": "success"})
 	}
 }
 
-// RespondJSON sends a JSON response
-func (s *server) RespondJSON(w http.ResponseWriter, r *http.Request, statusCode int, data interface{}) {
+// respondJSON sends a JSON response
+func respondJSON(w http.ResponseWriter, statusCode int, data interface{}) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(statusCode)
 	json.NewEncoder(w).Encode(data)

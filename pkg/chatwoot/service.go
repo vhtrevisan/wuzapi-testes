@@ -14,11 +14,14 @@ import (
 	"go.mau.fi/whatsmeow/types/events"
 )
 
+// conversationCreationMutex serializes conversation creation to prevent race conditions
+var conversationCreationMutex sync.Mutex
+
 // Service manages the business logic between WhatsApp and Chatwoot
 type Service struct {
 	db                *sqlx.DB
-	dedupeCache       sync.Map
-	conversationCache sync.Map // Cache for conversation lookups
+	dedupeCache       sync.Map // map[messageID]timestamp - prevents processing same message twice
+	conversationCache sync.Map // map[cacheKey]conversationID - avoids DB lookups
 }
 
 // NewService creates a new Chatwoot service instance
@@ -354,6 +357,21 @@ func (s *Service) ensureConversation(userID string, client *Client, config *Conf
 	inboxID := int(config.InboxID.Int64)
 	sourceID := fmt.Sprintf("wa:%s", chatJID)
 
+	// Lock to prevent race condition when multiple messages arrive simultaneously
+	conversationCreationMutex.Lock()
+	defer conversationCreationMutex.Unlock()
+
+	// Double-check cache after acquiring lock (another goroutine may have created it)
+	if cached, ok := s.conversationCache.Load(cacheKey); ok {
+		if convID, ok := cached.(int); ok {
+			log.Info().
+				Int("conversation_id", convID).
+				Str("cache_key", cacheKey).
+				Msg("✓ Conversation found in cache after lock (created by another goroutine)")
+			return convID, nil
+		}
+	}
+
 	log.Warn().
 		Str("user_id", userID).
 		Str("chat_jid", chatJID).
@@ -414,6 +432,55 @@ func (s *Service) ensureConversation(userID string, client *Client, config *Conf
 		Msg("✓ Conversation stored in memory cache")
 
 	return conversationID, nil
+}
+
+// StoreConversationFromWebhook stores conversation data from Chatwoot webhook into cache
+func (s *Service) StoreConversationFromWebhook(userID, chatJID string, conversationID, contactID, inboxID int) error {
+	cacheKey := fmt.Sprintf("%s:%s", userID, chatJID)
+
+	// Store in memory cache
+	s.conversationCache.Store(cacheKey, conversationID)
+
+	// Store in database cache
+	insertQuery := `INSERT INTO chatwoot_conversations 
+        (user_id, chat_jid, chatwoot_conversation_id, chatwoot_contact_id, chatwoot_inbox_id) 
+        VALUES ($1, $2, $3, $4, $5)
+        ON CONFLICT (user_id, chat_jid) 
+        DO UPDATE SET 
+            chatwoot_conversation_id = EXCLUDED.chatwoot_conversation_id,
+            chatwoot_contact_id = EXCLUDED.chatwoot_contact_id,
+            chatwoot_inbox_id = EXCLUDED.chatwoot_inbox_id,
+            updated_at = CURRENT_TIMESTAMP`
+
+	if s.db.DriverName() == "sqlite" {
+		// SQLite uses different upsert syntax
+		insertQuery = `INSERT INTO chatwoot_conversations 
+            (user_id, chat_jid, chatwoot_conversation_id, chatwoot_contact_id, chatwoot_inbox_id) 
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT (user_id, chat_jid) 
+            DO UPDATE SET 
+                chatwoot_conversation_id = excluded.chatwoot_conversation_id,
+                chatwoot_contact_id = excluded.chatwoot_contact_id,
+                chatwoot_inbox_id = excluded.chatwoot_inbox_id`
+	}
+
+	_, err := s.db.Exec(insertQuery, userID, chatJID, conversationID, contactID, inboxID)
+	if err != nil {
+		log.Error().
+			Err(err).
+			Int("conversation_id", conversationID).
+			Str("chat_jid", chatJID).
+			Msg("Failed to store conversation from webhook")
+		return err
+	}
+
+	log.Info().
+		Str("user_id", userID).
+		Str("chat_jid", chatJID).
+		Int("conversation_id", conversationID).
+		Msg("✓ Conversation stored from webhook to cache")
+
+	return nil
 }
 
 // sendMessageToChatwoot extracts message content and sends it to Chatwoot

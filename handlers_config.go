@@ -110,7 +110,9 @@ func (s *server) GetChatwootConfig() http.HandlerFunc {
 			UpdatedAt:           config.UpdatedAt.Format("2006-01-02T15:04:05Z"),
 		}
 
-		s.RespondJSON(w, r, http.StatusOK, response)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(response)
 	}
 }
 
@@ -288,7 +290,9 @@ func (s *server) SetChatwootConfig() http.HandlerFunc {
 			response["inbox_id"] = inboxID.Int64
 		}
 
-		s.RespondJSON(w, r, http.StatusOK, response)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(response)
 	}
 }
 
@@ -318,7 +322,9 @@ func (s *server) DeleteChatwootConfig() http.HandlerFunc {
 		}
 
 		log.Info().Str("user_id", userID).Msg("Chatwoot configuration deleted successfully")
-		s.RespondJSON(w, r, http.StatusOK, map[string]string{
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(map[string]string{
 			"status":  "success",
 			"message": "Chatwoot configuration deleted successfully",
 		})
