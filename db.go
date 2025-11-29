@@ -106,7 +106,8 @@ func initializeSQLite(config DatabaseConfig) (*sqlx.DB, error) {
 	}
 
 	// Configurar pool de conexões para WAL mode (permite 1 write + múltiplos reads)
-	db.SetMaxOpenConns(3)
+	// Reduzido para 1 para garantir estabilidade absoluta e evitar "transaction within transaction"
+	db.SetMaxOpenConns(1)
 	db.SetMaxIdleConns(1)
 	db.SetConnMaxLifetime(time.Hour)
 
